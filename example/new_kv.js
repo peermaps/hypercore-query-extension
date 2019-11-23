@@ -4,22 +4,23 @@ var argv = minimist(process.argv.slice(2), {
 })
 var pump = require('pump')
 var to = require('to2')
+var path = require('path')
+var { Readable } = require('readable-stream')
 
 var Protocol = require('hypercore-protocol')
 var swarm = require('discovery-swarm')
-var hypercore = require('hypercore')
 
 var umkv = require('unordered-materialized-kv')
 var db = require('level')(path.join(argv.datadir,'db'))
 var kv = umkv(db)
 
-var path = require('path')
 var raf = require('random-access-file')
 var Storage = require('multifeed-storage')
 var storage = new Storage(function (name) {
   return raf(path.join(argv.datadir,name))
 })
 var Replicate = require('multifeed-replicate')
+var Query = require('../')
 
 if (argv._[0] === 'put') {
   var doc = {
@@ -27,7 +28,7 @@ if (argv._[0] === 'put') {
     value: argv._[2],
     links: [].concat(argv.link || [])
   }
-  storage.getOrCreateLocal('feed', function (err, feed) {
+  storage.getOrCreateLocal('feed', { valueEncoding: 'json' }, function (err, feed) {
     feed.append(doc, function (err, seq) {
       if (err) console.error(err)
       var kdoc = {
@@ -44,7 +45,7 @@ if (argv._[0] === 'put') {
   kv.get(argv._[1], function (err, ids) {
     ;(ids || []).forEach(function (id) {
       var [key,seq] = id.split('@')
-      storage.getOrCreateRemote(key, function (err, feed) {
+      storage.getOrCreateRemote(key, { valueEncoding: 'json' }, function (err, feed) {
         feed.get(Number(seq), function (err, doc) {
           console.log(`${id} ${doc.key} => ${doc.value}`)
         })
@@ -54,6 +55,7 @@ if (argv._[0] === 'put') {
   connect(function (q) {
     var s = q.query('get', Buffer.from(argv._[1]))
     s.pipe(to.obj(function (row, enc, next) {
+      console.log('QUERY',row)
       storage.getOrCreateRemote(row.key, function (err, feed) {
         if (err) return next(err)
         feed.update(row.seq+1, function () {
@@ -69,7 +71,7 @@ if (argv._[0] === 'put') {
           })
         })
       })
-    })
+    }))
   })
 } else if (argv._[0] === 'connect') {
   connect()

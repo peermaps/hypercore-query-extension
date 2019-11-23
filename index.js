@@ -27,6 +27,8 @@ function Query (mstore, opts) {
   this._sentQueryId = 0
   this._sentQueryDefs = {}
   this._sentQueryDefId = 0
+  this._sentFeedDefs = {}
+  this._sentFeedDefId = 0
 }
 Query.prototype = Object.create(EventEmitter.prototype)
 
@@ -34,22 +36,29 @@ Query.prototype.query = function (name, data) {
   var self = this
   if (!self._sentQueries.hasOwnProperty(name)) {
     var qid = self._sentQueryDefId++
-    self._sentQueriesDefs[name] = qid
-    self._ext.send(messages.QueryDef.encode({ qid, name }))
+    self._sentQueryDefs[name] = qid
+    self._send('QueryDef', { id: qid, name })
   }
   var id = self._sentQueryId++
   self._sentQueries[id] = new Readable({
     objectMode: true,
     read: function (n) {
-      self._ext.send(messages.Read.encode({ id, n }))
+      self._send('Read', { id, n })
     }
   })
-  self._ext.send(messages.Open.encode({
+  self._send('Open', {
     id,
     query_id: self._sentQueryDefs[name],
     data
-  }))
+  })
   return self._sentQueries[id]
+}
+
+Query.prototype._send = function (type, msg) {
+  this._ext.send(Buffer.concat([
+    Buffer.from([types[type]]),
+    messages[type].encode(msg)
+  ]))
 }
 
 Query.prototype._handle = function (msg) {
@@ -60,7 +69,7 @@ Query.prototype._handle = function (msg) {
   } else if (msg[0] === types.Control) {
     this._handleControl(messages.Control.decode(msg, 1))
   } else if (msg[0] === types.QueryDef) {
-    var m = messages.Close.decode(msg.slice(1))
+    var m = messages.QueryDef.decode(msg.slice(1))
     this._queryDefs[m.id] = m.name
   } else if (msg[0] === types.Response) {
     var m = messages.Response.decode(msg, 1)
@@ -93,13 +102,24 @@ Query.prototype._handleOpen = function (m) {
 
 Query.prototype._handleRead = function (m) {
   var self = this
-  var q = self._queries[m.id]
-  if (!q) return
-  self._readers[m.id](q, m.n, function (res) {
-    self._ext.send(messages.Response.encode({
+  if (!self._readers[m.id]) return
+  self._readers[m.id](m.n, function (err, res) {
+    console.log('res=',res)
+    var hkey = res.key.toString('hex')
+    if (!self._sentFeedDefs.hasOwnProperty(hkey)) {
+      self._send('FeedDef', {
+        key: res.key,
+        id: self._sentFeedDefId
+      })
+      self._sentFeedDefs[hkey] = self._sentFeedDefId++
+    }
+    self._send('Response', {
       query_id: m.id,
-      result: res
-    }))
+      result: {
+        id: self._sentFeedDefs[hkey],
+        seq: res.seq
+      }
+    })
   })
 }
 
@@ -126,7 +146,7 @@ Query.prototype.register = function (p, extName) {
       self.emit('error', err)
     }
   })
-  return ext
+  return self._ext
 }
 
 function reader (stream) {
@@ -134,7 +154,8 @@ function reader (stream) {
   stream.on('readable', onreadable)
   stream.on('error', onerror)
   return function (n, cb) {
-    if (!ready) return queue.push([Math.max(n || 1, 1),cb])
+    queue.push([Math.max(n || 1, 1),cb])
+    if (ready) read()
   }
   function onreadable () {
     ready = true
