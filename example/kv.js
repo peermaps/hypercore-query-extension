@@ -95,9 +95,9 @@ function connect (f) {
             })
           })
         } else if (msg.type === 'response') {
+          var bkey = Buffer.from(msg.feed,'hex')
           if (!opened[msg.feed]) {
             opened[msg.feed] = true
-            var bkey = Buffer.from(msg.feed,'hex')
             var rfeed = open(bkey)
             rfeed.replicate(info.initiator, {
               live: true,

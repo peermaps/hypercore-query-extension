@@ -1,0 +1,45 @@
+// type=0
+message Open {
+  required uint32 id = 1;
+  required uint32 query_id = 2;
+  required bytes data = 3;
+}
+
+// type=1
+message Read {
+  required uint32 id = 1;
+  required uint32 n = 2;
+}
+
+// type=2
+message Control {
+  required uint32 id = 1;
+  enum ControlCode {
+    CLOSE = 0;
+    DESTROY = 1;
+  }
+  ControlCode code = 2;
+}
+
+// type=3
+message QueryDef {
+  required uint32 id = 1;
+  required string name = 2;
+}
+
+// type=4
+message Response {
+  required uint32 query_id = 1;
+  required FeedSeq result = 2;
+}
+
+// type=5
+message FeedDef {
+  required uint32 id = 1;
+  required bytes key = 2;
+}
+
+message FeedSeq {
+  required uint32 id = 1;
+  required uint32 seq = 2;
+}
