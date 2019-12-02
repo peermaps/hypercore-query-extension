@@ -29,6 +29,7 @@ if (argv._[0] === 'put') {
     links: [].concat(argv.link || [])
   }
   storage.getOrCreateLocal('feed', { valueEncoding: 'json' }, function (err, feed) {
+    if (err) return console.error(err)
     feed.append(doc, function (err, seq) {
       if (err) console.error(err)
       var kdoc = {
@@ -43,30 +44,35 @@ if (argv._[0] === 'put') {
   })
 } else if (argv._[0] === 'get') {
   kv.get(argv._[1], function (err, ids) {
+    if (err) return console.error(err)
+    console.log('get ids=',ids)
     ;(ids || []).forEach(function (id) {
       var [key,seq] = id.split('@')
       storage.getOrCreateRemote(key, { valueEncoding: 'json' }, function (err, feed) {
-        feed.get(Number(seq), function (err, doc) {
+        feed.get(Number(seq), { valueEncoding: 'json' }, function (err, doc) {
           console.log(`${id} ${doc.key} => ${doc.value}`)
         })
       })
     })
   })
-  connect(function (q) {
+  connect(function (r, q) {
     var s = q.query('get', Buffer.from(argv._[1]))
     s.pipe(to.obj(function (row, enc, next) {
       console.log('QUERY',row)
       storage.getOrCreateRemote(row.key, function (err, feed) {
         if (err) return next(err)
+        r.open(row.key, { live: true, sparse: true })
+        console.log('get or create remote')
         feed.update(row.seq+1, function () {
-          feed.get(row.seq, function (err, doc) {
+          console.log('updated')
+          feed.get(row.seq, { valueEncoding: 'json' }, function (err, doc) {
             if (err) return next(err)
             var kdoc = {
-              id: msg.feed + '@' + msg.seq,
+              id: row.key.toString('hex') + '@' + row.seq,
               key: doc.key,
               links: doc.links || []
             }
-            console.log(`${msg.feed}@${msg.seq} ${doc.key} => ${doc.value}`)
+            console.log(`${row.key.toString('hex')}@${row.seq} ${doc.key} => ${doc.value}`)
             kv.batch([kdoc], next)
           })
         })
@@ -95,7 +101,10 @@ function connect (f) {
             if (err) return r.emit('error', err)
             ids.forEach(function (id) {
               var [key,seq] = id.split('@')
-              r.push({ key, seq })
+              r.push({
+                key: Buffer.from(key,'hex'),
+                seq: Number(seq)
+              })
             })
             r.push(null)
           })
@@ -104,8 +113,8 @@ function connect (f) {
       return r
     }
     q.register(p, 'kv')
-    var r = new Replicate(storage, p)
+    var r = new Replicate(storage, p, { live: true, sparse: true })
     pump(stream, p, stream)
-    if (f) f(q)
+    if (f) f(r, q)
   })
 }
