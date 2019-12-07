@@ -104,7 +104,6 @@ Query.prototype._handleRead = function (m) {
   var self = this
   if (!self._readers[m.id]) return
   self._readers[m.id](m.n, function (err, res) {
-    console.log('res=',res)
     var hkey = res.key.toString('hex')
     if (!self._sentFeedDefs.hasOwnProperty(hkey)) {
       self._send('FeedDef', {

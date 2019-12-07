@@ -2,18 +2,25 @@ var minimist = require('minimist')
 var argv = minimist(process.argv.slice(2), {
   alias: { d: 'datadir' }
 })
-var path = require('path')
 var pump = require('pump')
-var feeds = {}
+var to = require('to2')
+var path = require('path')
+var { Readable } = require('readable-stream')
 
 var Protocol = require('hypercore-protocol')
 var swarm = require('discovery-swarm')
-var hypercore = require('hypercore')
 
-var feed = hypercore(path.join(argv.datadir,'core'), { valueEncoding: 'json' })
-var umkv = require('unordered-materialized-kv')
+var umkvl = require('unordered-materialized-kv-live')
 var db = require('level')(path.join(argv.datadir,'db'))
-var kv = umkv(db)
+var kv = umkvl(db)
+
+var raf = require('random-access-file')
+var Storage = require('multifeed-storage')
+var storage = new Storage(function (name) {
+  return raf(path.join(argv.datadir,name))
+})
+var Replicate = require('multifeed-replicate')
+var Query = require('../')
 
 if (argv._[0] === 'put') {
   var doc = {
@@ -21,29 +28,52 @@ if (argv._[0] === 'put') {
     value: argv._[2],
     links: [].concat(argv.link || [])
   }
-  feed.append(doc, function (err, seq) {
-    if (err) console.error(err)
-    var kdoc = {
-      id: feed.key.toString('hex') + '@' + seq,
-      key: doc.key,
-      links: doc.links
-    }
-    kv.batch([kdoc], function (err) {
+  storage.getOrCreateLocal('feed', { valueEncoding: 'json' }, function (err, feed) {
+    if (err) return console.error(err)
+    feed.append(doc, function (err, seq) {
       if (err) console.error(err)
-    })
-  })
-} else if (argv._[0] === 'get') {
-  kv.get(argv._[1], function (err, ids) {
-    ;(ids || []).forEach(function (id) {
-      var [key,seq] = id.split('@')
-      var rfeed = open(Buffer.from(key,'hex'))
-      rfeed.get(Number(seq), function (err, doc) {
-        console.log(`${id} ${doc.key} => ${doc.value}`)
+      var kdoc = {
+        id: feed.key.toString('hex') + '@' + seq,
+        key: doc.key,
+        links: doc.links
+      }
+      kv.batch([kdoc], function (err) {
+        if (err) console.error(err)
       })
     })
   })
-  connect(function (ext) {
-    ext.send({ type: 'get', key: argv._[1] })
+} else if (argv._[0] === 'get') {
+  kv.open(argv._.slice(1))
+  kv.on('value', function (key, ids) {
+    ids.forEach(function (id) {
+      var [key,seq] = id.split('@')
+      storage.getOrCreateRemote(key, { valueEncoding: 'json' }, function (err, feed) {
+        feed.get(Number(seq), { valueEncoding: 'json' }, function (err, doc) {
+          console.log(`${id} ${doc.key} => ${doc.value}`)
+        })
+      })
+    })
+  })
+  connect(function (r, q) {
+    var s = q.query('get', Buffer.from(argv._[1]))
+    s.pipe(to.obj(function (row, enc, next) {
+      storage.getOrCreateRemote(row.key, function (err, feed) {
+        if (err) return next(err)
+        if (feed.has(row.seq)) return
+        r.open(row.key, { live: true, sparse: true })
+        feed.update(row.seq+1, function () {
+          feed.get(row.seq, { valueEncoding: 'json' }, function (err, doc) {
+            if (err) return next(err)
+            var kdoc = {
+              id: row.key.toString('hex') + '@' + row.seq,
+              key: doc.key,
+              links: doc.links || []
+            }
+            kv.batch([kdoc], next)
+          })
+        })
+      })
+    }))
   })
 } else if (argv._[0] === 'connect') {
   connect()
@@ -54,99 +84,34 @@ function connect (f) {
   sw.join(argv.swarm)
   sw.on('connection', function (stream, info) {
     var p = new Protocol(info.initiator, {
-      ondiscoverykey: function (dkey) {
-        if (dkey.equals(feed.discoveryKey)) {
-          feed.replicate(info.initiator, {
-            download: false,
-            live: true,
-            stream: p
-          })
-        } else {
-          getKey(dkey, function (err, key) {
-            if (err) return console.error(err)
-            if (!opened[key]) {
-              opened[key] = true
-              var rfeed = open(Buffer.from(key,'hex'))
-              rfeed.replicate(info.initiator, {
-                download: false,
-                live: true,
-                stream: p
-              })
-            }
-          })
-        }
-      }
+      download: false,
+      live: true
     })
-    var opened = {}
-    var ext = p.registerExtension('kv', {
-      encoding: 'json',
-      onmessage: function (msg) {
-        console.log('MSG', JSON.stringify(msg))
-        if (msg.type === 'get') {
-          kv.get(msg.key, function (err, ids) {
-            if (err) return console.error(err)
+    var q = new Query(storage, { api: { get } })
+    function get (data) {
+      kv.open(data)
+
+      var r = new Readable({
+        objectMode: true,
+        read: function () {
+          kv.get(data, function (err, ids) {
+            if (err) return r.emit('error', err)
             ids.forEach(function (id) {
               var [key,seq] = id.split('@')
-              ext.send({
-                type: 'response',
-                feed: key,
+              r.push({
+                key: Buffer.from(key,'hex'),
                 seq: Number(seq)
               })
             })
-          })
-        } else if (msg.type === 'response') {
-          var bkey = Buffer.from(msg.feed,'hex')
-          if (!opened[msg.feed]) {
-            opened[msg.feed] = true
-            var rfeed = open(bkey)
-            rfeed.replicate(info.initiator, {
-              live: true,
-              sparse: true,
-              stream: p
-            })
-          } else {
-            var rfeed = open(bkey)
-          }
-          rfeed.update(msg.seq+1, function () {
-            rfeed.get(msg.seq, function (err, doc) {
-              var kdoc = {
-                id: msg.feed + '@' + msg.seq,
-                key: doc.key,
-                links: doc.links || []
-              }
-              console.log(`${msg.feed}@${msg.seq} ${doc.key} => ${doc.value}`)
-              kv.batch([kdoc], function (err) {
-                if (err) console.error(err)
-              })
-            })
+            r.push(null)
           })
         }
-      }
-    })
-    pump(stream, p, stream)
-    if (f) f(ext)
-  })
-}
-
-function open (key) {
-  var hkey = key.toString('hex')
-  if (!feeds[hkey]) {
-    var d = path.join(argv.datadir,key.toString('hex'))
-    feeds[hkey] = hypercore(d, key, { valueEncoding: 'json' })
-    var dkey = feeds[hkey].discoveryKey.toString('hex')
-    db.put('dkey!' + dkey, hkey, function (err) {
-      if (err) console.error(err)
-    })
-  }
-  return feeds[hkey]
-}
-
-function getKey (dkey, cb) {
-  var keys = Object.keys(feeds)
-  for (var i = 0; i < keys.length; i++) {
-    if (feeds[keys[i]].discoveryKey.equals(dkey)) {
-      return process.nextTick(cb, null, keys[i])
+      })
+      return r
     }
-  }
-  db.get('dkey!' + dkey.toString('hex'), cb)
+    q.register(p, 'kv')
+    var r = new Replicate(storage, p, { live: true, sparse: true })
+    pump(stream, p, stream)
+    if (f) f(r, q)
+  })
 }
