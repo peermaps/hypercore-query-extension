@@ -52,7 +52,7 @@ test('pubsub', function (t) {
         t.ifError(err)
         var n = Number(buf.toString())
         subs.forEach(({ start, end, stream }) => {
-          if (n >= start && n < end) {
+          if (n >= start && n <= end) {
             stream.push({ key: feed.key, seq })
           }
         })

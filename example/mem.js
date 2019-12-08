@@ -23,6 +23,7 @@ feed0.ready(function () {
   s.pipe(new Transform({
     objectMode: true,
     transform: function (row, enc, next) {
+      if (!row.key.equals(feed0.key)) return next()
       feed1.update(row.seq, function () {
         feed1.get(row.seq, function (err, buf) {
           if (err) return next(err)
@@ -41,7 +42,7 @@ function api (feed) {
     feed.get(seq, function (err, buf) {
       var n = Number(buf.toString())
       subs.forEach(({ start, end, stream }) => {
-        if (n >= start && n < end) {
+        if (n >= start && n <= end) {
           stream.push({ key: feed.key, seq })
         }
       })

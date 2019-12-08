@@ -2,7 +2,7 @@
 message Open {
   required uint32 id = 1;
   required uint32 query_id = 2;
-  required bytes data = 3;
+  optional bytes data = 3;
 }
 
 // type=1
