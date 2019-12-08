@@ -92,7 +92,11 @@ var Query = require('hypercore-query-extension')
 
 Create a new `Query` instance `q` from:
 
-* `opts.api` -
+* `opts.api` - object mapping query names to implementation functions.
+
+Each api function receives a `Buffer` of optional argument payload and must
+return a readable objectMode stream that pushes object with a feed `key` (as a
+`Buffer`) and a sequence number.
 
 ## q.extension()
 
