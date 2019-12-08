@@ -1,5 +1,4 @@
 var { Readable, Transform } = require('readable-stream')
-var Protocol = require('hypercore-protocol')
 var Query = require('../')
 var ram = require('random-access-memory')
 
