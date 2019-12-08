@@ -87,7 +87,7 @@ function connect (f) {
       download: false,
       live: true
     })
-    var q = new Query(storage, { api: { get } })
+    var q = new Query({ api: { get } })
     function get (data) {
       kv.open(data)
 

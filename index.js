@@ -14,10 +14,9 @@ var codes = messages.Control.ControlCode
 
 module.exports = Query
 
-function Query (mstore, opts) {
-  if (!(this instanceof Query)) return new Query(mstore, opts)
+function Query (opts) {
+  if (!(this instanceof Query)) return new Query(opts)
   if (!opts) opts = {}
-  this._mstore = mstore
   this._api = opts.api || {}
   this._queryDefs = {}
   this._feedDefs = {}
@@ -134,24 +133,25 @@ Query.prototype._handleControl = function (m) {
   }
 }
 
-Query.prototype.register = function (p, extName) {
+Query.prototype.extension = function () {
   var self = this
-  self._ext = p.registerExtension(extName, {
-    encoding: 'binary',
-    onmessage: function (msg, peer) {
-      self._handle(msg)
-    },
-    onerror: function (err) {
-      self.emit('error', err)
+  return function (ext) {
+    self._ext = ext
+    return {
+      encoding: 'binary',
+      onmessage: function (msg, peer) {
+        self._handle(msg)
+      },
+      onerror: function (err) {
+        self.emit('error', err)
+      }
     }
-  })
-  return self._ext
+  }
 }
 
 function reader (stream) {
   var queue = [], ready = true
   stream.on('readable', onreadable)
-  stream.on('error', onerror)
   return function (n, cb) {
     queue.push([Math.max(n || 1, 1),cb])
     if (ready) read()
@@ -170,8 +170,5 @@ function reader (stream) {
       if (--q[0] === 0) queue.shift()
     }
     ready = false
-  }
-  function onerror (err) {
-    stream.emit('error', err)
   }
 }
