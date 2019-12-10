@@ -1,17 +1,21 @@
 var test = require('tape')
-var { Readable, Transform } = require('readable-stream')
+var { Duplex, Transform } = require('readable-stream')
 var Query = require('../')
 var ram = require('random-access-memory')
 var hypercore = require('hypercore')
 
-test('pubsub', function (t) {
+test('full duplex', function (t) {
   var feed0 = hypercore(ram)
   var expected = []
   var iv = setInterval(function () {
     var n = Math.floor(Math.random()*100)
     feed0.append(String(n))
-    if (n >= 50 && n <= 70) expected.push(n)
-    if (expected.length === 10) clearInterval(iv)
+    if (expected.length < 10) {
+      if (n >= 50 && n <= 70) expected.push(n)
+    } else {
+      if (n >= 10 && n <= 40) expected.push(n)
+    }
+    if (expected.length === 20) clearInterval(iv)
   }, 5)
   var received = []
   feed0.ready(function () {
@@ -33,7 +37,11 @@ test('pubsub', function (t) {
             if (err) return next(err)
             var n = Number(buf.toString())
             received.push(n)
-            if (received.length === 10) check()
+            if (received.length === 10) {
+              s.write('10,40')
+            } else if (received.length === 20) {
+              check()
+            }
             next()
           })
         })
@@ -60,13 +68,17 @@ test('pubsub', function (t) {
     })
     return { subscribe }
     function subscribe (args) {
-      var { start, end } = JSON.parse(args.toString())
-      var stream = new Readable({
+      var sub = JSON.parse(args.toString())
+      sub.stream = new Duplex({
         objectMode: true,
-        read: function () {}
+        read: function () {},
+        write: function (buf, enc, next) {
+          ;[sub.start,sub.end] = buf.toString().split(',').map(Number)
+          next()
+        }
       })
-      subs.push({ start, end, stream })
-      return stream
+      subs.push(sub)
+      return sub.stream
     }
   }
 })

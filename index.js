@@ -1,5 +1,5 @@
 var { EventEmitter } = require('events')
-var { Readable } = require('readable-stream')
+var { Duplex } = require('readable-stream')
 var onend = require('end-of-stream')
 var messages = require('./messages.js')
 var types = {
@@ -8,7 +8,8 @@ var types = {
   Control: 2,
   QueryDef: 3,
   Response: 4,
-  FeedDef: 5
+  FeedDef: 5,
+  Write: 6
 }
 var codes = messages.Control.ControlCode
 
@@ -39,10 +40,14 @@ Query.prototype.query = function (name, data) {
     self._send('QueryDef', { id: qid, name })
   }
   var id = self._sentQueryId++
-  self._sentQueries[id] = new Readable({
+  self._sentQueries[id] = new Duplex({
     objectMode: true,
     read: function (n) {
       self._send('Read', { id, n })
+    },
+    write: function (data, enc, next) {
+      self._send('Write', { id, data })
+      next()
     }
   })
   self._send('Open', {
@@ -81,6 +86,8 @@ Query.prototype._handle = function (msg) {
   } else if (msg[0] === types.FeedDef) {
     var m = messages.FeedDef.decode(msg, 1)
     this._feedDefs[m.id] = m.key
+  } else if (msg[0] === types.Write) {
+    this._handleWrite(messages.Write.decode(msg, 1))
   }
 }
 
@@ -119,6 +126,13 @@ Query.prototype._handleRead = function (m) {
       }
     })
   })
+}
+
+Query.prototype._handleWrite = function (m) {
+  var self = this
+  var q = self._queries[m.id]
+  if (!q) return
+  if (typeof q.write === 'function') q.write(m.data)
 }
 
 Query.prototype._handleControl = function (m) {

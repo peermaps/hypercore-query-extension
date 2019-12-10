@@ -43,3 +43,9 @@ message FeedSeq {
   required uint32 id = 1;
   required uint32 seq = 2;
 }
+
+// type=6
+message Write {
+  required uint32 id = 1;
+  required bytes data = 2;
+}

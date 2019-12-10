@@ -95,8 +95,14 @@ Create a new `Query` instance `q` from:
 * `opts.api` - object mapping query names to implementation functions.
 
 Each api function receives a `Buffer` of optional argument payload and must
-return a readable objectMode stream that pushes object with a feed `key` (as a
-`Buffer`) and a sequence number.
+return a readable or duplex `readableObjectMode` stream that pushes object with
+a feed `key` (as a `Buffer`) and a sequence number.
+
+If the stream is duplex, you'll be able to receive messages on the channel from
+the other side of the query. You can use this to adjust query parameters on the
+fly, for example if you have a query for a map and the user pans the map,
+changing the bounding box. The updated bounding box can be sent back up the
+stream without having to open a new query.
 
 ## q.extension()
 
@@ -111,13 +117,16 @@ proto.registerExtension('your-extension-name', q.extension())
 
 ## var stream = q.query(name, data)
 
-Return a readable objectMode `stream` with results from calling the api endpoint
+Return a duplex objectMode `stream` with results from calling the api endpoint
 `name` with an optional `data` payload (as a `Buffer`).
 
-Each `row` from the readable stream contains:
+Each `row` from the readable side of the stream contains:
 
 * `row.key` - feed key (`Buffer`)
 * `row.seq` - feed sequence number
+
+If the query supports duplex mode, you can write messages to the remote api by
+calling `stream.write()` with `Buffer` payloads.
 
 # license
 
