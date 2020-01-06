@@ -27,7 +27,8 @@
     "unordered-materialized-kv-live": "^1.0.1"
   },
   "scripts": {
-    "protobuf": "protocol-buffers schema.proto -o messages.js"
+    "protobuf": "protocol-buffers schema.proto -o messages.js",
+    "test": "tape test/*.js"
   },
   "license": "bsd"
 }
