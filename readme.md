@@ -122,7 +122,7 @@ Return a duplex objectMode `stream` with results from calling the api endpoint
 
 Each `row` from the readable side of the stream contains:
 
-* `row.key` - feed key (`Buffer`)
+* `row.key` - feed key (`Buffer` or hex string)
 * `row.seq` - feed sequence number
 
 If the query supports duplex mode, you can write messages to the remote api by

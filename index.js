@@ -110,10 +110,18 @@ Query.prototype._handleRead = function (m) {
   var self = this
   if (!self._readers[m.id]) return
   self._readers[m.id](m.n, function (err, res) {
-    var hkey = res.key.toString('hex')
+    if (typeof res.key === 'string' && /^[0-9A-Fa-f]+$/.test(res.key)) {
+      var hkey = res.key
+      var key = Buffer.from(hkey, 'hex')
+    } else if (Buffer.isBuffer(res.key)) {
+      var key = res.key
+      var hkey = key.toString('hex')
+    } else {
+      return
+    }
     if (!self._sentFeedDefs.hasOwnProperty(hkey)) {
       self._send('FeedDef', {
-        key: res.key,
+        key,
         id: self._sentFeedDefId
       })
       self._sentFeedDefs[hkey] = self._sentFeedDefId++
