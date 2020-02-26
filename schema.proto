@@ -18,7 +18,8 @@ message Control {
     CLOSE = 0;
     DESTROY = 1;
   }
-  ControlCode code = 2;
+  required ControlCode code = 2;
+  required bool sentQuery = 3;
 }
 
 // type=3
