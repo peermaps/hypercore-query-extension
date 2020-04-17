@@ -100,6 +100,13 @@ Query.prototype._handleOpen = function (m) {
   if (!q || typeof q.pipe !== 'function') return
   self._queries[m.id] = q
   self._readers[m.id] = reader(q)
+  q.on('end', () => {
+    self._send('Control', {
+      id: m.query_id,
+      code: codes.CLOSE,
+      sentQuery: true
+    })
+  })
   onend(q, function () {
     delete self._queries[m.id]
     delete self._readers[m.id]
@@ -144,14 +151,16 @@ Query.prototype._handleWrite = function (m) {
 }
 
 Query.prototype._handleControl = function (m) {
+  const queries = m.sentQuery ? this._sentQueries : this._queries
   if (m.code === codes.CLOSE) {
-    var q = this._queries[m.id]
+    var q = queries[m.id]
     if (q && typeof q.close === 'function') q.close()
-    delete this._queries[m.id]
+    if (m.sentQuery) q.push(null)
+    delete queries[m.id]
   } else if (m.code === codes.DESTROY) {
-    var q = this._queries[m.id]
+    q = queries[m.id]
     if (q && typeof q.destroy === 'function') q.destroy()
-    delete this._queries[m.id]
+    delete queries[m.id]
   }
 }
 
