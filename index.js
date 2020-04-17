@@ -103,8 +103,7 @@ Query.prototype._handleOpen = function (m) {
   q.on('end', () => {
     self._send('Control', {
       id: m.query_id,
-      code: codes.CLOSE,
-      sentQuery: true
+      code: codes.END
     })
   })
   onend(q, function () {
@@ -152,15 +151,19 @@ Query.prototype._handleWrite = function (m) {
 
 Query.prototype._handleControl = function (m) {
   const queries = m.sentQuery ? this._sentQueries : this._queries
-  if (m.code === codes.CLOSE) {
-    var q = queries[m.id]
+  if (m.code === codes.END) {
+    var q = this._sentQueries[m.id]
+    q.push(null)
+    delete this._sentQueries[m.id]
+  } else if (m.code === codes.CLOSE) {
+    var q = this._queries[m.id]
     if (q && typeof q.close === 'function') q.close()
     if (m.sentQuery) q.push(null)
-    delete queries[m.id]
+    delete this._queries[m.id]
   } else if (m.code === codes.DESTROY) {
-    q = queries[m.id]
+    q = this._queries[m.id]
     if (q && typeof q.destroy === 'function') q.destroy()
-    delete queries[m.id]
+    delete this._queries[m.id]
   }
 }
 
